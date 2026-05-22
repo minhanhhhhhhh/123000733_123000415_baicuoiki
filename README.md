@@ -8,7 +8,7 @@
 | 2   | 123000415       |    Phạm Thùy Yến Phương       |
 
 **Đề tài đã chọn:** _(ghi tên đề tài ở đây)_
-
+| 2 | Tóm tắt văn bản tự động (Text Summarization) | sumy, BART, VietAI/vit5 |
 ---
 
 ## Danh sách đề tài gợi ý
