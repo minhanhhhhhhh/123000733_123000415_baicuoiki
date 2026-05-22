@@ -86,14 +86,16 @@ streamlit run app.py
 
 ## Các nhiệm vụ cần hoàn thành trong `app.py`
 
-_(Sinh viên liệt kê các TODO / nhiệm vụ cụ thể theo đề tài đã chọn)_
-
-- [ ] Nhiệm vụ 1: ...
-- [ ] Nhiệm vụ 2: ...
-- [ ] Nhiệm vụ 3: ...
-- [ ] Nhiệm vụ 4: Xử lý lỗi khi input rỗng
-- [ ] Nhiệm vụ 5: Export kết quả (CSV / PDF / ...)
-- [ ] Nhiệm vụ 6: Trực quan hoá kết quả (biểu đồ, highlight, word cloud...)
+- [ ] Nhiệm vụ 1: Cải thiện chất lượng tóm tắt tiếng Việt (xử lý dấu, stopwords tốt hơn)
+- [ ] Nhiệm vụ 2: Tích hợp underthesea cho tiếng Việt
+- [ ] Nhiệm vụ 3: Đọc file PDF, DOCX, TXT
+- [ ] Nhiệm vụ 4: Tích hợp tóm tắt TF-IDF & TextRank
+- [ ] Nhiệm vụ 5: Hỗ trợ tóm tắt qua URL
+- [ ] Nhiệm vụ 6: Thêm chức năng tóm tắt theo tỷ lệ % hoặc số câu chỉ định
+- [ ] Nhiệm vụ 7: Thêm nút **Download** kết quả tóm tắt
+- [ ] Nhiệm vụ 8: Triển khai tính năng **tóm tắt nhiều tài liệu cùng lúc** (Multi-document)
+- [ ] NHiệm vụ 9: Hiển thị thống kê và từ khóa
+  
 
 ---
 
