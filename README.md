@@ -2,10 +2,10 @@
 
 **Thông tin sinh viên:**
 
-| STT | Mã Số Sinh Viên | Họ và Tên |
-|-----|-----------------|-----------|
-| 1   |                 |           |
-| 2   |                 |           |
+| STT | Mã Số Sinh Viên |         Họ và Tên             |
+|-----|-----------------|------------------------------ |
+| 1   | 123000733       |    Vũ Minh Anh                |
+| 2   | 123000415       |    Phạm Thùy Yến Phương       |
 
 **Đề tài đã chọn:** _(ghi tên đề tài ở đây)_
 
@@ -30,21 +30,53 @@
 
 ## Mô tả dự án
 
-_(Sinh viên mô tả ngắn gọn đề tài đã chọn, mục tiêu và phạm vi của dự án)_
+# Công cụ Tóm Tắt Văn Bản Tự Động 
+
+**Ứng dụng Web tóm tắt văn bản tiếng Việt và tiếng Anh không cần API**
 
 ---
 
-## Cấu trúc project
+## Giới thiệu
 
-```
-bai-cuoi-mon-nlp-lachong/
-├── app.py              # Ứng dụng Streamlit chính
-├── requirements.txt    # Danh sách thư viện
-├── DE-TAI.md           # Chi tiết các đề tài gợi ý
-├── SETUP.md            # Hướng dẫn cài đặt
-├── README.md           # File này
-└── LICENSE
-```
+Đây là **ứng dụng Streamlit** hỗ trợ tóm tắt văn bản một cách nhanh chóng và hiệu quả. Dự án được thực hiện trong khuôn khổ **Bài Cuối Môn Xử Lý Ngôn Ngữ Tự Nhiên (NLP)**
+
+Ứng dụng cho phép người dùng:
+- Dán trực tiếp văn bản
+- Tải lên file **PDF, DOCX, TXT**
+- Nhập **link URL** hoặc **Google Docs**
+
+Ứng dụng sử dụng các phương pháp tóm tắt trích xuất (**Extractive Summarization**) hiện đại, không phụ thuộc vào API bên thứ ba.
+
+---
+
+## Tính năng nổi bật
+
+- **Hỗ trợ đa nguồn đầu vào**: Text, PDF, DOCX, TXT, URL, Google Docs
+- **Nhiều thuật toán tóm tắt**:
+  - TF-IDF
+  - TextRank
+  - Sumy (LSA, LexRank, Luhn, TextRank)
+  - RAKE (trích xuất từ khóa)
+- **Hỗ trợ tiếng Việt và tiếng Anh** (sử dụng underthesea cho tiếng Việt)
+- **Giao diện đẹp, thân thiện**, responsive với Streamlit
+- **Thống kê**: số từ, số câu, tỷ lệ nén
+- **Từ khóa chính** được trích xuất tự động
+- **Không cần API key** (hoàn toàn offline/local)
+
+---
+
+## Công nghệ sử dụng
+
+- **Python**
+- **Streamlit** (framework giao diện)
+- **underthesea** (tokenization tiếng Việt)
+- **pypdf / pdfminer** (đọc PDF)
+- **python-docx** (đọc DOCX)
+- **BeautifulSoup4** (parse web)
+- **sumy, rake-nltk** (các thuật toán tóm tắt)
+- **scikit-learn / numpy** (hỗ trợ tính toán)
+
+---
 
 ---
 
