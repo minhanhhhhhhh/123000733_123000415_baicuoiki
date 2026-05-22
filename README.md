@@ -11,23 +11,6 @@
 | 2 | Tóm tắt văn bản tự động (Text Summarization) | sumy, BART, VietAI/vit5 |
 ---
 
-## Danh sách đề tài gợi ý
-
-> Chi tiết từng đề tài xem tại [DE-TAI.md](DE-TAI.md)
-
-| # | Đề tài | Công nghệ gợi ý |
-|---|--------|-----------------|
-| 1 | Phân tích cảm xúc (Sentiment Analysis) | PhoBERT, scikit-learn, underthesea |
-| 2 | Tóm tắt văn bản tự động (Text Summarization) | sumy, BART, VietAI/vit5 |
-| 3 | Nhận dạng thực thể tên (NER) | spaCy, underthesea, PhoBERT |
-| 4 | Chatbot hỏi đáp theo tài liệu (Document QA) | LangChain, FAISS, sentence-transformers |
-| 5 | Phân loại văn bản (Text Classification) | TF-IDF, fastText, PhoBERT |
-| 6 | So sánh độ tương đồng ngữ nghĩa (Semantic Similarity) | sentence-transformers, SBERT |
-| 7 | Phân cụm chủ đề văn bản (Topic Modeling) | BERTopic, LDA, KMeans |
-| 8 | Trích xuất từ khoá (Keyword Extraction) | KeyBERT, YAKE, RAKE |
-
----
-
 ## Mô tả dự án
 
 # Công cụ Tóm Tắt Văn Bản Tự Động 
