@@ -7,7 +7,7 @@
 | 1   | 123000733       |    Vũ Minh Anh                |
 | 2   | 123000415       |    Phạm Thùy Yến Phương       |
 
-**Đề tài đã chọn:** _(ghi tên đề tài ở đây)_
+**Đề tài đã chọn:** 
 | 2 | Tóm tắt văn bản tự động (Text Summarization) | sumy, BART, VietAI/vit5 |
 ---
 
