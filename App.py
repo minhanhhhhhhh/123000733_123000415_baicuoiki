@@ -484,62 +484,34 @@ def sumy_summarize(text: str, k: int, algorithm: str = "LSA") -> str:
     return " ".join(str(s) for s in sumr(parser.document, k))
 
 
-def rake_keywords(text: str, top_n: int = 15, max_words: int = 4) -> list[tuple[str, float]]:
-    """
-    Trả về list (phrase, score).
-    max_words: giới hạn số từ tối đa trong một cụm từ khoá.
-    """
-    def filter_phrases(pairs: list[tuple[str, float]]) -> list[tuple[str, float]]:
-        """Lọc bỏ cụm quá dài, quá ngắn, hoặc chỉ là số."""
-        result = []
-        seen   = set()
-        for ph, sc in pairs:
-            words = ph.strip().split()
-            if len(words) > max_words:          # bỏ cụm quá dài
-                continue
-            if len(ph.strip()) < 3:             # bỏ cụm quá ngắn
-                continue
-            if ph.strip().isdigit():            # bỏ cụm chỉ là số
-                continue
-            key = ph.strip().lower()
-            if key in seen:                     # bỏ trùng
-                continue
-            seen.add(key)
-            result.append((ph.strip(), sc))
-        return result
-
+def rake_keywords(text: str, top_n: int = 15, max_words: int = 3) -> list[tuple[str, float]]:
+    """Phiên bản rút gọn - Trích xuất từ khóa"""
     try:
         from rake_nltk import Rake
         import nltk
-        for res in ("corpora/stopwords","tokenizers/punkt_tab"):
-            try:    nltk.data.find(res)
-            except: nltk.download(res.split("/")[1], quiet=True)
-        r = Rake(max_length=max_words)
+        
+        # Tải nhanh stopwords nếu chưa có
+        try:
+            nltk.data.find('corpora/stopwords')
+        except:
+            nltk.download('stopwords', quiet=True)
+            
+        r = Rake(max_length=max_words, min_length=1)
         r.extract_keywords_from_text(text)
-        raw = [(ph, sc) for sc, ph in r.get_ranked_phrases_with_scores()]
-        return filter_phrases(raw)[:top_n]
+        
+        keywords = [(phrase, score) for score, phrase in r.get_ranked_phrases_with_scores()]
+        return keywords[:top_n]
+        
     except ImportError:
-        pass
-
-    # Fallback thuần Python
-    words = re.findall(r'\b\w+\b', normalize_vi(text).lower())
-    phrases, current = [], []
-    for w in words:
-        if w in ALL_STOPWORDS or not re.match(r'^[\w]+$', w):
-            if current: phrases.append(" ".join(current)); current = []
-        else:
-            if len(current) < max_words:
-                current.append(w)
-            else:
-                phrases.append(" ".join(current)); current = [w]
-    if current: phrases.append(" ".join(current))
-    freq: Counter = Counter(phrases)
-    deg:  Counter = Counter()
-    for ph in phrases:
-        for w in ph.split(): deg[w] += len(ph.split())
-    scores = {ph: sum(deg[w]/(freq[w] or 1) for w in ph.split()) for ph in freq}
-    ranked = [(ph, sc) for ph, sc in sorted(scores.items(), key=lambda x: x[1], reverse=True)]
-    return filter_phrases(ranked)[:top_n]
+        # Fallback cực ngắn gọn (không cần rake_nltk)
+        tokens = clean_tokens(tokenize_vi(text))
+        freq = Counter(tokens)
+        # Lấy cụm 1-2 từ có tần suất cao
+        result = []
+        for word, score in freq.most_common(top_n * 2):
+            if len(word.split()) <= max_words:
+                result.append((word, score))
+        return result[:top_n]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -632,24 +604,31 @@ def render_result(summary: str, method_name: str, source_text: str,
     }
 
 
-def render_keywords(text: str, top_n: int = 15):
-    """Hiển thị từ khoá với màu sắc theo điểm."""
+def render_keywords(text: str, top_n: int = 12):
+    """Hiển thị từ khóa"""
     keywords = rake_keywords(text, top_n=top_n)
     if not keywords:
+        st.info("Không tìm thấy từ khóa")
         return
-    max_score = keywords[0][1] if keywords else 1
+
+    # Hiển thị tag
     tags = []
-    for ph, sc in keywords:
-        opacity = max(0.4, sc / max(max_score, 1))
-        style   = f"opacity:{opacity:.2f}"
-        tags.append(f'<span class="kw-tag" style="{style}" title="Điểm: {sc:.1f}">{ph}</span>')
+    max_score = keywords[0][1] if keywords else 1
+    
+    for phrase, score in keywords:
+        opacity = max(0.45, score / max_score)
+        tags.append(
+            f'<span class="kw-tag" style="opacity:{opacity:.2f}" '
+            f'title="Điểm: {score:.1f}">{phrase}</span>'
+        )
+    
     st.markdown(" ".join(tags), unsafe_allow_html=True)
 
-    # Top 10 dạng bảng
-    with st.expander("📊 Xem bảng từ khoá chi tiết"):
+    # Bảng chi tiết (tùy chọn)
+    with st.expander("📊 Xem chi tiết từ khóa", expanded=False):
         import pandas as pd
-        df = pd.DataFrame(keywords[:10], columns=["Cụm từ khoá", "Điểm RAKE"])
-        df["Điểm RAKE"] = df["Điểm RAKE"].round(2)
+        df = pd.DataFrame(keywords, columns=["Từ khóa", "Điểm"])
+        df["Điểm"] = df["Điểm"].round(2)
         st.dataframe(df, use_container_width=True, hide_index=True)
 
 
