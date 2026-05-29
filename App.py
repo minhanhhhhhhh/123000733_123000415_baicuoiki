@@ -484,34 +484,67 @@ def sumy_summarize(text: str, k: int, algorithm: str = "LSA") -> str:
     return " ".join(str(s) for s in sumr(parser.document, k))
 
 
-def rake_keywords(text: str, top_n: int = 15, max_words: int = 3) -> list[tuple[str, float]]:
-    """Phiên bản rút gọn - Trích xuất từ khóa"""
+def rake_keywords(text: str, top_n: int = 12, max_words: int = 3) -> list[tuple[str, float]]:
+    """Trích xuất từ khóa CÓ Ý NGHĨA"""
     try:
         from rake_nltk import Rake
         import nltk
         
-        # Tải nhanh stopwords nếu chưa có
-        try:
-            nltk.data.find('corpora/stopwords')
-        except:
-            nltk.download('stopwords', quiet=True)
-            
-        r = Rake(max_length=max_words, min_length=1)
-        r.extract_keywords_from_text(text)
+        # Tải dữ liệu cần thiết
+        for res in ("corpora/stopwords", "tokenizers/punkt_tab"):
+            try:
+                nltk.data.find(res)
+            except:
+                nltk.download(res.split("/")[1], quiet=True)
         
-        keywords = [(phrase, score) for score, phrase in r.get_ranked_phrases_with_scores()]
-        return keywords[:top_n]
+        # Cấu hình RAKE tốt hơn
+        r = Rake(
+            max_length=max_words,           # tối đa 3 từ
+            min_length=2,                   # ít nhất 2 từ (giúp có ý nghĩa hơn)
+            include_repeated_phrases=False
+        )
+        
+        r.extract_keywords_from_text(text)
+        ranked = r.get_ranked_phrases_with_scores()
+        
+        # Lọc thêm để tăng tính ý nghĩa
+        result = []
+        seen = set()
+        
+        for score, phrase in ranked:
+            phrase = phrase.strip()
+            if not phrase or len(phrase.split()) < 2:
+                continue
+                
+            # Bỏ cụm chỉ toàn số hoặc quá ngắn
+            if phrase.replace(" ", "").isdigit():
+                continue
+                
+            key = phrase.lower()
+            if key in seen:
+                continue
+                
+            seen.add(key)
+            result.append((phrase, score))
+            
+            if len(result) >= top_n:
+                break
+                
+        return result
         
     except ImportError:
-        # Fallback cực ngắn gọn (không cần rake_nltk)
-        tokens = clean_tokens(tokenize_vi(text))
-        freq = Counter(tokens)
-        # Lấy cụm 1-2 từ có tần suất cao
-        result = []
-        for word, score in freq.most_common(top_n * 2):
-            if len(word.split()) <= max_words:
-                result.append((word, score))
-        return result[:top_n]
+        # Fallback tốt hơn (dùng Counter + lọc ý nghĩa)
+        from collections import Counter
+        tokens = clean_tokens(tokenize_vi(text))  # dùng hàm có sẵn của bạn
+        
+        # Lấy bigram (cụm 2 từ) để tăng tính ý nghĩa
+        bigrams = []
+        for i in range(len(tokens)-1):
+            bigram = f"{tokens[i]} {tokens[i+1]}"
+            bigrams.append(bigram)
+        
+        freq = Counter(bigrams)
+        return [(phrase, score) for phrase, score in freq.most_common(top_n)]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -605,20 +638,21 @@ def render_result(summary: str, method_name: str, source_text: str,
 
 
 def render_keywords(text: str, top_n: int = 12):
-    """Hiển thị từ khóa"""
     keywords = rake_keywords(text, top_n=top_n)
+    
     if not keywords:
-        st.info("Không tìm thấy từ khóa")
+        st.warning("Không tìm thấy từ khóa có ý nghĩa.")
         return
 
-    # Hiển thị tag
+    st.markdown("**Từ khóa chính:**")
+    
     tags = []
     max_score = keywords[0][1] if keywords else 1
     
     for phrase, score in keywords:
-        opacity = max(0.45, score / max_score)
+        opacity = max(0.5, score / max_score)   # tăng độ nổi bật
         tags.append(
-            f'<span class="kw-tag" style="opacity:{opacity:.2f}" '
+            f'<span class="kw-tag" style="opacity:{opacity:.2f}; font-weight:500;" '
             f'title="Điểm: {score:.1f}">{phrase}</span>'
         )
     
