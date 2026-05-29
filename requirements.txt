@@ -2,3 +2,5 @@ streamlit
 underthesea
 pandas
 watchdog
+pypdf 
+python-docx
