@@ -258,11 +258,29 @@ def read_pdf(file_bytes: bytes) -> str:
 
 def read_docx(file_bytes: bytes) -> str:
     try:
-        import docx
-        doc = docx.Document(io.BytesIO(file_bytes))
-        return normalize_vi("\n".join(p.text for p in doc.paragraphs if p.text.strip()))
+        from docx import Document
+        stream = io.BytesIO(file_bytes)
+        doc    = Document(stream)
+        # Lấy cả paragraphs trong bảng (table cells)
+        texts = []
+        for p in doc.paragraphs:
+            t = p.text.strip()
+            if t:
+                texts.append(t)
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    t = cell.text.strip()
+                    if t and t not in texts:
+                        texts.append(t)
+        result = "\n".join(texts)
+        if not result.strip():
+            return "⚠️ File DOCX rỗng hoặc chỉ chứa hình ảnh/bảng không có text."
+        return normalize_vi(result)
     except ImportError:
-        return "⚠️ Cài: pip install python-docx"
+        return "⚠️ Chưa cài python-docx. Chạy: pip install python-docx"
+    except Exception as e:
+        return f"⚠️ Lỗi đọc DOCX: {e}"
 
 
 def gdoc_export_url(url: str) -> str | None:
@@ -273,35 +291,112 @@ def gdoc_export_url(url: str) -> str | None:
 
 
 def fetch_url_text(url: str) -> tuple[str, str]:
+    """
+    Tải toàn bộ nội dung từ URL.
+    Thứ tự ưu tiên:
+      1. Google Docs  → export txt trực tiếp
+      2. readability-lxml → bài báo chất lượng cao
+      3. BeautifulSoup → <article>/<main>/<p> tags
+      4. Regex fallback
+    """
     url = url.strip()
+    domain = urllib.parse.urlparse(url).netloc
+
+    # ── Google Docs ───────────────────────────────────────────────────────────
     gdoc = gdoc_export_url(url)
     if gdoc:
         try:
             req  = urllib.request.Request(gdoc, headers={"User-Agent": "Mozilla/5.0"})
-            resp = urllib.request.urlopen(req, timeout=15)
+            resp = urllib.request.urlopen(req, timeout=20)
             return normalize_vi(read_txt(resp.read())), "Google Docs"
         except Exception as e:
             return f"⚠️ Không tải được Google Docs: {e}", "Lỗi"
+
+    # ── Tải HTML ──────────────────────────────────────────────────────────────
+    headers = {
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0 Safari/537.36"),
+        "Accept-Language": "vi,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+    }
     try:
-        req  = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        resp = urllib.request.urlopen(req, timeout=15)
-        html = resp.read().decode("utf-8", errors="replace")
+        req  = urllib.request.Request(url, headers=headers)
+        resp = urllib.request.urlopen(req, timeout=20)
+        raw  = resp.read()
+        # Phát hiện encoding từ header hoặc meta
+        charset = "utf-8"
+        ct = resp.headers.get("Content-Type", "")
+        m  = re.search(r"charset=([\w-]+)", ct)
+        if m:
+            charset = m.group(1)
+        html = raw.decode(charset, errors="replace")
     except Exception as e:
         return f"⚠️ Không tải được URL: {e}", "Lỗi"
+
+    # ── readability (nếu đã cài) ──────────────────────────────────────────────
+    try:
+        from readability import Document
+        doc   = Document(html)
+        clean = doc.summary(html_partial=True)
+        from bs4 import BeautifulSoup as _BS
+        soup2 = _BS(clean, "html.parser")
+        text  = soup2.get_text(separator="\n")
+        text  = re.sub(r"\n{3,}", "\n\n", text).strip()
+        if len(text) > 200:
+            return normalize_vi(text), domain
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    # ── BeautifulSoup thông minh ──────────────────────────────────────────────
     try:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")
-        for tag in soup(["script","style","nav","footer","header","aside"]):
+
+        # Xoá noise tags
+        for tag in soup(["script","style","nav","footer","header",
+                         "aside","figure","figcaption","iframe",
+                         "noscript","button","form","input","select"]):
             tag.decompose()
-        text = soup.get_text(separator="\n")
-        text = re.sub(r'\n{3,}', '\n\n', text).strip()
-        return normalize_vi(text), urllib.parse.urlparse(url).netloc
+
+        # Ưu tiên lấy nội dung chính
+        main_text = ""
+        for selector in ["article", "main", '[role="main"]',
+                         ".article-body", ".post-content",
+                         ".content-detail", ".article__body",   # VnExpress
+                         ".fck_detail",                          # Tuổi Trẻ
+                         ".maincontent", "#content"]:
+            el = soup.select_one(selector)
+            if el:
+                paragraphs = el.find_all(["p","h2","h3","li"])
+                main_text  = "\n".join(p.get_text(" ", strip=True)
+                                        for p in paragraphs if p.get_text(strip=True))
+                if len(main_text) > 300:
+                    break
+
+        # Fallback: lấy tất cả <p>
+        if len(main_text) < 300:
+            paragraphs = soup.find_all("p")
+            main_text  = "\n".join(p.get_text(" ", strip=True)
+                                    for p in paragraphs if len(p.get_text(strip=True)) > 40)
+
+        # Fallback cuối: get_text toàn trang
+        if len(main_text) < 300:
+            main_text = soup.get_text(separator="\n")
+
+        text = re.sub(r"\n{3,}", "\n\n", main_text).strip()
+        return normalize_vi(text), domain
+
     except ImportError:
         pass
-    text = re.sub(r'<[^>]+>', ' ', html)
-    text = re.sub(r'&[a-z]+;', ' ', text)
-    text = re.sub(r'\s{2,}', '\n', text).strip()
-    return normalize_vi(text), urllib.parse.urlparse(url).netloc
+
+    # ── Regex fallback ────────────────────────────────────────────────────────
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = re.sub(r"&[a-z]+;", " ", text)
+    text = re.sub(r"\s{2,}", "\n", text).strip()
+    return normalize_vi(text), domain
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -389,20 +484,43 @@ def sumy_summarize(text: str, k: int, algorithm: str = "LSA") -> str:
     return " ".join(str(s) for s in sumr(parser.document, k))
 
 
-def rake_keywords(text: str, top_n: int = 15) -> list[tuple[str, float]]:
-    """Trả về list (phrase, score)."""
+def rake_keywords(text: str, top_n: int = 15, max_words: int = 4) -> list[tuple[str, float]]:
+    """
+    Trả về list (phrase, score).
+    max_words: giới hạn số từ tối đa trong một cụm từ khoá.
+    """
+    def filter_phrases(pairs: list[tuple[str, float]]) -> list[tuple[str, float]]:
+        """Lọc bỏ cụm quá dài, quá ngắn, hoặc chỉ là số."""
+        result = []
+        seen   = set()
+        for ph, sc in pairs:
+            words = ph.strip().split()
+            if len(words) > max_words:          # bỏ cụm quá dài
+                continue
+            if len(ph.strip()) < 3:             # bỏ cụm quá ngắn
+                continue
+            if ph.strip().isdigit():            # bỏ cụm chỉ là số
+                continue
+            key = ph.strip().lower()
+            if key in seen:                     # bỏ trùng
+                continue
+            seen.add(key)
+            result.append((ph.strip(), sc))
+        return result
+
     try:
         from rake_nltk import Rake
         import nltk
         for res in ("corpora/stopwords","tokenizers/punkt_tab"):
             try:    nltk.data.find(res)
             except: nltk.download(res.split("/")[1], quiet=True)
-        r = Rake()
+        r = Rake(max_length=max_words)
         r.extract_keywords_from_text(text)
-        ranked = r.get_ranked_phrases_with_scores()[:top_n]
-        return [(ph, sc) for sc, ph in ranked]
+        raw = [(ph, sc) for sc, ph in r.get_ranked_phrases_with_scores()]
+        return filter_phrases(raw)[:top_n]
     except ImportError:
         pass
+
     # Fallback thuần Python
     words = re.findall(r'\b\w+\b', normalize_vi(text).lower())
     phrases, current = [], []
@@ -410,15 +528,18 @@ def rake_keywords(text: str, top_n: int = 15) -> list[tuple[str, float]]:
         if w in ALL_STOPWORDS or not re.match(r'^[\w]+$', w):
             if current: phrases.append(" ".join(current)); current = []
         else:
-            current.append(w)
+            if len(current) < max_words:
+                current.append(w)
+            else:
+                phrases.append(" ".join(current)); current = [w]
     if current: phrases.append(" ".join(current))
     freq: Counter = Counter(phrases)
     deg:  Counter = Counter()
     for ph in phrases:
         for w in ph.split(): deg[w] += len(ph.split())
     scores = {ph: sum(deg[w]/(freq[w] or 1) for w in ph.split()) for ph in freq}
-    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    return ranked[:top_n]
+    ranked = [(ph, sc) for ph, sc in sorted(scores.items(), key=lambda x: x[1], reverse=True)]
+    return filter_phrases(ranked)[:top_n]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -724,59 +845,77 @@ with tab_file:
 
 # ── TAB 3: Link URL ───────────────────────────────────────────────────────────
 with tab_url:
-    st.markdown("🟢 **Google Docs** (chia sẻ *Anyone with link*) · 🌐 **Trang web** (cần beautifulsoup4)")
-    url_input = st.text_input("Dán link:", placeholder="https://docs.google.com/... hoặc https://vnexpress.net/...", key="url")
+    st.markdown(
+        "Dán link **Google Docs** đã chia sẻ công khai (*Anyone with the link can view*)."
+    )
+    url_input = st.text_input(
+        "Link Google Docs:",
+        placeholder="https://docs.google.com/document/d/...",
+        key="url",
+    )
     if st.button("⬇️ Tải nội dung", key="fetch"):
-        with st.spinner("Đang tải..."):
-            fetched, src = fetch_url_text(url_input.strip())
-        if fetched.startswith("⚠️"):
-            st.error(fetched)
-        elif fetched.strip():
-            st.success(f"✅ {src} · {count_words(fetched):,} từ")
-            st.text_area("Xem trước", fetched[:1500]+("…" if len(fetched)>1500 else ""),
-                         height=160, disabled=True, key="up")
-            st.session_state["url_text"]   = fetched
-            st.session_state["url_source"] = src
+        u = url_input.strip()
+        if not gdoc_export_url(u):
+            st.error("⚠️ Link không hợp lệ. Vui lòng dán đúng link Google Docs "
+                     "(https://docs.google.com/document/d/...)")
+        else:
+            with st.spinner("Đang tải Google Docs..."):
+                fetched, src = fetch_url_text(u)
+            if fetched.startswith("⚠️"):
+                st.error(fetched)
+            elif fetched.strip():
+                st.success(f"✅ {src} · {count_words(fetched):,} từ")
+                st.text_area("Xem trước", fetched[:1500]+("…" if len(fetched)>1500 else ""),
+                             height=160, disabled=True, key="up")
+                st.session_state["url_text"]   = fetched
+                st.session_state["url_source"] = src
     if not input_text and st.session_state.get("url_text"):
         input_text   = st.session_state["url_text"]
-        source_label = st.session_state.get("url_source","URL")
+        source_label = st.session_state.get("url_source", "Google Docs")
         documents    = [{"title": source_label, "text": input_text}]
 
 # ── TAB 4: Multi-document ────────────────────────────────────────────────────
 with tab_multi:
-    st.markdown("##### Tải lên nhiều tài liệu để tóm tắt và so sánh cùng lúc")
-    multi_files = st.file_uploader("Chọn nhiều file cùng lúc",
-                                    type=["txt","pdf","docx"],
-                                    accept_multiple_files=True,
-                                    key="multi_upload")
+    st.markdown("##### Tải lên nhiều tài liệu để tóm tắt từng bản riêng lẻ")
+
+    # Upload nhiều file
+    multi_files = st.file_uploader(
+        "Chọn nhiều file cùng lúc",
+        type=["txt","pdf","docx"],
+        accept_multiple_files=True,
+        key="multi_upload",
+    )
     multi_texts: list[dict] = []
     if multi_files:
         for mf in multi_files:
-            fb  = mf.read()
+            # getvalue() trả về toàn bộ bytes bất kể vị trí stream hiện tại
+            fb  = mf.getvalue()
             ext = mf.name.rsplit(".",1)[-1].lower()
-            extracted = {"txt": read_txt,"pdf": read_pdf,"docx": read_docx}.get(ext, read_txt)(fb)
+            reader = {"txt": read_txt, "pdf": read_pdf, "docx": read_docx}.get(ext, read_txt)
+            extracted = reader(fb)
             if not extracted.startswith("⚠️") and extracted.strip():
                 multi_texts.append({"title": mf.name, "text": normalize_vi(extracted)})
+                st.success(f"✅ Đọc được: **{mf.name}** · {count_words(extracted):,} từ")
+            else:
+                st.error(f"{extracted}  —  File: **{mf.name}**")
 
-    # Thêm văn bản dán thủ công
-    st.markdown("**Hoặc dán văn bản thêm vào:**")
-    extra_title = st.text_input("Tên tài liệu", placeholder="Tài liệu thêm vào", key="extra_title")
-    extra_text  = st.text_area("Nội dung", height=120, placeholder="Dán văn bản...", key="extra_text")
-    if extra_text.strip():
-        multi_texts.append({"title": extra_title or f"Tài liệu {len(multi_texts)+1}",
-                             "text": normalize_vi(extra_text)})
-
+    # Xem trước danh sách tài liệu
     if multi_texts:
-        st.success(f"✅ {len(multi_texts)} tài liệu sẵn sàng")
-        for i, d in enumerate(multi_texts):
-            st.markdown(f'<div class="doc-card"><div class="doc-title">📄 {d["title"]}</div>'
-                        f'{count_words(d["text"]):,} từ · {len(split_sentences(d["text"]))} câu</div>',
-                        unsafe_allow_html=True)
+        st.success(f"✅ {len(multi_texts)} tài liệu sẵn sàng — nhấn **▶ Tóm tắt tất cả** bên dưới")
+        for i, d in enumerate(multi_texts, 1):
+            n_w = count_words(d["text"])
+            n_s = len(split_sentences(d["text"]))
+            st.markdown(
+                f'<div class="doc-card"><div class="doc-title">📄 {i}. {d["title"]}</div>'
+                f'{n_w:,} từ · {n_s} câu</div>',
+                unsafe_allow_html=True,
+            )
+        # Multi-doc dùng session_state riêng, KHÔNG ghi đè input_text của các tab khác
+        st.session_state["multi_docs"]  = multi_texts
         documents  = multi_texts
         multi_mode = True
-        # dùng tài liệu đầu tiên làm preview
-        input_text   = multi_texts[0]["text"]
-        source_label = f"{len(multi_texts)} tài liệu"
+        input_text   = multi_texts[0]["text"]   # chỉ dùng để enable nút
+        source_label = f"📚 {len(multi_texts)} tài liệu"
 
 
 # ── Thông tin văn bản hiện tại ────────────────────────────────────────────────
@@ -826,11 +965,19 @@ if run and input_text.strip():
     # ── MULTI-DOCUMENT ────────────────────────────────────────────────────────
     if multi_mode and len(documents) > 1:
         st.markdown("---")
-        st.markdown(f"### 📚 Kết quả — {len(documents)} tài liệu · {algorithm}")
+        mode_label = (f"Tỷ lệ {pct_sentences}%"
+                      if sum_mode == "Tỷ lệ %" else f"{num_sentences} câu")
+        st.markdown(f"### 📚 Kết quả — {len(documents)} tài liệu · {algorithm} · {mode_label}")
 
         for doc in documents:
             k = _resolve_num(doc["text"], sum_mode, num_sentences, pct_sentences)
-            st.markdown(f"#### 📄 {doc['title']}")
+            n_doc = len(split_sentences(doc["text"]))
+            st.markdown(
+                f"#### 📄 {doc['title']}  "
+                f"<span style='font-size:13px;color:#888;font-weight:400'>"
+                f"({n_doc} câu gốc → giữ lại {k} câu)</span>",
+                unsafe_allow_html=True,
+            )
             with st.spinner(f"Đang xử lý {doc['title']}..."):
                 raw     = run_algo(doc["text"], algorithm, k)
                 summary = postprocess(raw, domain)
@@ -902,10 +1049,18 @@ if run and input_text.strip():
 
     # ── ĐƠN LẺ ────────────────────────────────────────────────────────────────
     else:
-        k = _resolve_num(input_text, sum_mode, num_sentences, pct_sentences)
+        k          = _resolve_num(input_text, sum_mode, num_sentences, pct_sentences)
+        n_total    = len(split_sentences(input_text))
         algo_label = algorithm.replace(" (built-in)","").replace(" — "," ")
+        mode_label = (f"Tỷ lệ {pct_sentences}%" if sum_mode == "Tỷ lệ %"
+                      else f"{num_sentences} câu yêu cầu → giữ {k} câu")
         st.markdown("---")
-        st.markdown(f"### ✨ Kết quả — {algo_label}  ·  {domain}")
+        st.markdown(
+            f"### ✨ Kết quả — {algo_label}  ·  {domain}  "
+            f"<span style='font-size:13px;color:#888;font-weight:400'>"
+            f"({n_total} câu gốc → giữ lại {k} câu · {mode_label})</span>",
+            unsafe_allow_html=True,
+        )
         with st.spinner(f"{algo_label} đang xử lý..."):
             raw     = run_algo(input_text, algorithm, k)
             summary = postprocess(raw, domain)
